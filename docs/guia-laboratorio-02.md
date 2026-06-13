@@ -1,108 +1,342 @@
-# Guía de Laboratorio 02 — Backend Django (apps, modelos, API, JWT)
+# Guía de Laboratorio 02 — Modelos, Vistas, Templates (MVT)
 
-> **Parte 2 de 3** · ⏱ Duración estimada: **1 – 1.5 horas**
+> **Parte 2 de 3** · ⏱ Duración estimada: **2 – 2.5 horas**
 > **Asignatura:** Programación Orientada a Objetos (4to curso)
-> **Prerrequisito:** haber completado la [Parte 1 — Configuración base](./guia-laboratorio-01.md) y tener el servidor Django arrancando con la base de datos conectada.
-> **Alcance de esta parte:** crear las apps `accounts` y `core`, modelar entidades y exponer el API REST con autenticación JWT (CORS ya quedó configurado en la Parte 1).
+> **Prerrequisito:** [Parte 1 — Configuración base](./guia-laboratorio-01.md) completada.
+> **Alcance:** crear apps con `startapp`, modelo User personalizado con Manager, modelo Note, CRUD completo con templates Bootstrap y autenticación.
 
 | ⬅️ Anterior | 📘 Esta guía | ➡️ Siguiente |
 |---|---|---|
-| [01 — Configuración base](./guia-laboratorio-01.md) | **02** Backend Django | [03 — Frontend React + UML](./guia-laboratorio-03.md) |
+| [01 — Configuración base](./guia-laboratorio-01.md) | **02** Backend MVT | [03 — UML + Verificación](./guia-laboratorio-03.md) |
 
 ---
 
-## Tabla de contenido
+## 1. Fase 4 — Apps `accounts` y `core`
 
-9. [Fase 4 — Backend: apps `accounts` y `core` (modelos y admin)](#9-fase-4--backend-apps-accounts-y-core-modelos-y-admin)
-10. [Fase 5 — Backend: API REST + autenticación JWT](#10-fase-5--backend-api-rest--autenticación-jwt)
+### 1.1 Activar entorno y crear carpetas base
 
-> **Punto de control al final de esta guía:** el backend responde a `register`, `token`, `me` y `notes` con JWT, y está listo para ser consumido por el cliente React en la **Parte 3**.
+```bash
+cd "D:/UNEMI/2026/PERIODO-ABRIL-JUNIO/POO/POO-4TO-CURSO-DJANGO-POSTGRES-REACT/backend"
+source .venv/Scripts/activate
+```
+
+Cree las carpetas para templates y archivos estáticos:
+
+```bash
+mkdir -p templates static/css
+```
+
+### 1.2 Crear apps con `startapp`
+
+Django genera automáticamente la estructura de cada app. Las apps se crean al mismo nivel que `config/` (estructura plana):
+
+```bash
+python manage.py startapp accounts
+python manage.py startapp core
+```
+
+Resultado:
+
+```
+backend/
+├── accounts/          ← App de usuarios
+│   ├── migrations/
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── models.py
+│   ├── tests.py
+│   └── views.py
+├── core/              ← App de notas
+│   └── (misma estructura)
+├── config/            ← Configuración del proyecto
+├── templates/
+├── static/
+└── manage.py
+```
+
+Cree archivos adicionales que Django no genera:
+
+```bash
+touch accounts/urls.py accounts/forms.py accounts/managers.py
+touch core/urls.py core/forms.py
+mkdir -p accounts/templates/accounts core/templates/core
+```
+
+### 1.3 Registrar apps en `settings.py`
+
+Edite `INSTALLED_APPS` en `config/settings.py`:
+
+```python
+INSTALLED_APPS = [
+    ...
+    "django.contrib.staticfiles",
+    # Apps locales
+    "accounts",
+    "core",
+]
+```
 
 ---
 
-## 9. Fase 4 — Backend: apps `accounts` y `core` (modelos y admin)
+## 2. Fase 5 — Modelo User personalizado
 
-> **Concepto POO:** cada app Django es un **paquete cohesivo** que agrupa modelos, vistas y serializadores de un único bounded context. SRP en acción.
+> Se usa `AbstractBaseUser` + `PermissionsMixin` + `CustomUserManager`, patrón profesional que ofrece control total sobre el modelo de usuario.
 
-### Antes de empezar
+### 2.1 Manager
 
-Asegúrese de estar en `backend/` con el entorno virtual activo (si cerró la terminal tras la Parte 1):
-
-```powershell
-Set-Location backend
-.\.venv\Scripts\Activate.ps1
-python --version    # debe mostrar 3.12.x
-```
-
-### 9.1 Crear la carpeta `apps/` y los paquetes
-
-```powershell
-# Estructura de carpetas
-New-Item -ItemType Directory -Path apps, apps\accounts\migrations, apps\core\migrations -Force
-
-# Archivos __init__.py (marcadores de paquete Python)
-New-Item -ItemType File -Path apps\__init__.py -Force
-New-Item -ItemType File -Path apps\accounts\__init__.py, apps\accounts\migrations\__init__.py, apps\accounts\apps.py, apps\accounts\models.py, apps\accounts\admin.py, apps\accounts\serializers.py, apps\accounts\views.py, apps\accounts\urls.py -Force
-New-Item -ItemType File -Path apps\core\__init__.py, apps\core\migrations\__init__.py, apps\core\apps.py, apps\core\models.py, apps\core\admin.py, apps\core\serializers.py, apps\core\views.py, apps\core\urls.py -Force
-```
-
-Todos los `__init__.py` quedan vacíos. El contenido de los demás archivos se pega en los siguientes pasos.
-
-### 9.2 Registrar las apps en `INSTALLED_APPS`
-
-Las apps `apps.accounts` y `apps.core` ya están registradas en `base.py` (Parte 1, Fase 2). Si omitió esa parte, añádalas a `LOCAL_APPS` en `config/settings/base.py`.
-
-### 9.3 Modelo `User` personalizado
-
-📄 **`backend/apps/accounts/apps.py`**
+📄 **`accounts/managers.py`**
 
 ```python
-from django.apps import AppConfig
+from django.contrib.auth.base_user import BaseUserManager
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 
 
-class AccountsConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "apps.accounts"
-    verbose_name = "Cuentas de usuario"
+class CustomUserManager(BaseUserManager):
+    def email_validator(self, email):
+        try:
+            validate_email(email)
+        except ValidationError:
+            raise ValueError("Debe proporcionar un email válido")
+
+    def create_user(self, username, email, password=None, **extra_fields):
+        if not username:
+            raise ValueError("El usuario es obligatorio")
+        if email:
+            email = self.normalize_email(email)
+            self.email_validator(email)
+        else:
+            raise ValueError("El email es obligatorio")
+
+        user = self.model(username=username, email=email, **extra_fields)
+        user.set_password(password)
+        extra_fields.setdefault("is_staff", False)
+        extra_fields.setdefault("is_superuser", False)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, username, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("is_active", True)
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser debe tener is_staff=True")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser debe tener is_superuser=True")
+
+        return self.create_user(username, email, password, **extra_fields)
 ```
 
-📄 **`backend/apps/accounts/models.py`**
+### 2.2 Modelo User
+
+📄 **`accounts/models.py`**
 
 ```python
-from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from .managers import CustomUserManager
 
 
-class User(AbstractUser):
-    email = models.EmailField("correo electrónico", unique=True)
+class User(AbstractBaseUser, PermissionsMixin):
+    username = models.CharField(_("usuario"), max_length=150, unique=True)
+    email = models.EmailField(_("correo electrónico"), unique=True)
+    first_name = models.CharField(_("nombres"), max_length=50, blank=True)
+    last_name = models.CharField(_("apellidos"), max_length=50, blank=True)
+    is_staff = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    date_joined = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
-    REQUIRED_FIELDS = ["email"]
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ["username"]
+
+    objects = CustomUserManager()
 
     class Meta:
-        verbose_name = "usuario"
-        verbose_name_plural = "usuarios"
+        verbose_name = _("usuario")
+        verbose_name_plural = _("usuarios")
         ordering = ("-date_joined",)
 
-    def __str__(self) -> str:
+    def __str__(self):
         return self.username
 ```
 
-### 9.4 Modelo `Note` (app demo)
+> 💡 **USERNAME_FIELD = "email"**: el login se hace con email, no con username. `username` sigue siendo obligatorio (está en `REQUIRED_FIELDS`).
 
-📄 **`backend/apps/core/apps.py`**
+### 2.3 Configurar AUTH_USER_MODEL
+
+En `config/settings.py`, agregue antes de `LOGIN_URL`:
+
+```python
+AUTH_USER_MODEL = "accounts.User"
+```
+
+### 2.4 Apps config
+
+📄 **`accounts/apps.py`**
 
 ```python
 from django.apps import AppConfig
 
+class AccountsConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "accounts"
+```
+
+📄 **`core/apps.py`**
+
+```python
+from django.apps import AppConfig
 
 class CoreConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "apps.core"
-    verbose_name = "Núcleo (app demo)"
+    name = "core"
+    verbose_name = "Notas"
 ```
 
-📄 **`backend/apps/core/models.py`**
+### 2.5 Migrar
+
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
+
+✅ **Checkpoint:** migraciones de `accounts` aplicadas sin errores.
+
+---
+
+## 3. Fase 6 — Autenticación (login, registro, logout)
+
+### 3.1 Admin
+
+📄 **`accounts/admin.py`**
+
+```python
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.utils.translation import gettext_lazy as _
+from .models import User
+
+
+@admin.register(User)
+class UserAdmin(BaseUserAdmin):
+    ordering = ("email",)
+    list_display = ("id", "email", "username", "first_name", "last_name", "is_staff", "is_active")
+    list_filter = ("is_staff", "is_active")
+    search_fields = ("email", "username", "first_name", "last_name")
+    fieldsets = (
+        (_("Credenciales"), {"fields": ("email", "password")}),
+        (_("Información personal"), {"fields": ("username", "first_name", "last_name")}),
+        (_("Permisos"), {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
+        (_("Fechas"), {"fields": ("last_login", "date_joined")}),
+    )
+    add_fieldsets = (
+        (None, {"classes": ("wide",), "fields": ("email", "username", "password1", "password2")}),
+    )
+```
+
+### 3.2 Formulario de registro
+
+📄 **`accounts/forms.py`**
+
+```python
+from django.contrib.auth.forms import UserCreationForm
+from .models import User
+
+class UserRegisterForm(UserCreationForm):
+    class Meta:
+        model = User
+        fields = ("email", "username", "first_name", "last_name")
+```
+
+### 3.3 Vistas
+
+📄 **`accounts/views.py`**
+
+```python
+from django.urls import reverse_lazy
+from django.views.generic import CreateView
+from .forms import UserRegisterForm
+
+class RegisterView(CreateView):
+    form_class = UserRegisterForm
+    template_name = "accounts/register.html"
+    success_url = reverse_lazy("login")
+```
+
+### 3.4 URLs
+
+📄 **`accounts/urls.py`**
+
+```python
+from django.contrib.auth.views import LoginView, LogoutView
+from django.urls import path
+from .views import RegisterView
+
+app_name = "accounts"
+urlpatterns = [
+    path("login/", LoginView.as_view(template_name="accounts/login.html"), name="login"),
+    path("logout/", LogoutView.as_view(), name="logout"),
+    path("register/", RegisterView.as_view(), name="register"),
+]
+```
+
+### 3.5 Templates de accounts
+
+📄 **`accounts/templates/accounts/register.html`**
+
+```html
+{% extends "base.html" %}
+{% block title %}Registro{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <h2 class="mb-4">Crear cuenta</h2>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="btn btn-primary w-100">Registrarme</button>
+    </form>
+    <p class="mt-3 text-center">¿Ya tienes cuenta? <a href="{% url 'accounts:login' %}">Inicia sesión</a></p>
+  </div>
+</div>
+{% endblock %}
+```
+
+📄 **`accounts/templates/accounts/login.html`**
+
+```html
+{% extends "base.html" %}
+{% block title %}Iniciar sesión{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <h2 class="mb-4">Iniciar sesión</h2>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="btn btn-primary w-100">Entrar</button>
+    </form>
+    <p class="mt-3 text-center">¿No tienes cuenta? <a href="{% url 'accounts:register' %}">Regístrate</a></p>
+  </div>
+</div>
+{% endblock %}
+```
+
+✅ **Checkpoint:** `/auth/register/`, `/auth/login/`, `/auth/logout/` funcionan.
+
+---
+
+## 4. Fase 7 — Modelo Note y CRUD
+
+### 4.1 Modelo
+
+📄 **`core/models.py`**
 
 ```python
 from django.conf import settings
@@ -110,14 +344,12 @@ from django.db import models
 
 
 class Note(models.Model):
-    """Nota personal asociada a un usuario."""
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="notes",
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="notes", verbose_name="propietario",
     )
-    title = models.CharField(max_length=200)
-    body = models.TextField(blank=True)
+    title = models.CharField("título", max_length=200)
+    body = models.TextField("contenido", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -126,345 +358,242 @@ class Note(models.Model):
         verbose_name = "nota"
         verbose_name_plural = "notas"
 
-    def __str__(self) -> str:
-        return f"{self.title} ({self.owner_id})"
+    def __str__(self):
+        return self.title
 ```
 
-### 9.5 Registrar en el admin
+```bash
+python manage.py makemigrations core
+python manage.py migrate
+```
 
-📄 **`backend/apps/accounts/admin.py`**
+### 4.2 Admin
+
+📄 **`core/admin.py`**
 
 ```python
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-
-from .models import User
-
-
-@admin.register(User)
-class UserAdmin(DjangoUserAdmin):
-    list_display = ("id", "username", "email", "is_staff", "is_active", "date_joined")
-    list_filter = ("is_staff", "is_active")
-    search_fields = ("username", "email", "first_name", "last_name")
-    ordering = ("-date_joined",)
-
-    fieldsets = DjangoUserAdmin.fieldsets + (
-        ("Metadatos", {"fields": ("created_at",)}),
-    )
-    readonly_fields = ("created_at", "last_login", "date_joined")
-```
-
-📄 **`backend/apps/core/admin.py`**
-
-```python
-from django.contrib import admin
-
 from .models import Note
-
 
 @admin.register(Note)
 class NoteAdmin(admin.ModelAdmin):
     list_display = ("id", "title", "owner", "created_at")
     list_filter = ("owner",)
     search_fields = ("title", "body", "owner__username")
-    readonly_fields = ("created_at", "updated_at")
 ```
 
-### 9.6 Generar migraciones
+### 4.3 Formulario
 
-```powershell
-python manage.py makemigrations
-python manage.py migrate
-```
-
-Salida esperada: migración inicial para `accounts` y `core`.
-
-### 9.7 Crear superusuario
-
-```powershell
-python manage.py createsuperuser
-```
-
-Django le pedirá, en este orden:
-
-```
-Username: admin
-Email address: admin@example.com
-Password: ********          # la contraseña no se muestra al teclear
-Password (again): ********
-Superuser created successfully.
-```
-
-### 9.8 Verificar el admin
-
-```powershell
-python manage.py runserver
-```
-
-Abra `http://127.0.0.1:8000/admin/` e ingrese con el superusuario. Debe ver los modelos **Usuarios** y **Notas**.
-
-### ✅ Checkpoint Fase 4
-
-- [x] Migraciones aplicadas sin errores.
-- [x] Admin accesible y muestra las dos apps.
-- [x] Puede crear un usuario y una nota desde el admin.
-
----
-
-## 10. Fase 5 — Backend: API REST + autenticación JWT
-
-> **Concepto POO:** el *serializer* es un **adaptador** entre el modelo (representación interna) y la representación JSON (interfaz pública del API). Es una **fachada** que también valida datos de entrada.
-
-### 10.1 Serializers de `accounts`
-
-📄 **`backend/apps/accounts/serializers.py`**
+📄 **`core/forms.py`**
 
 ```python
-"""Serializers para registro y representación del usuario."""
-from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
-from rest_framework import serializers
-
-User = get_user_model()
-
-
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ("id", "username", "email", "first_name", "last_name", "created_at")
-        read_only_fields = ("id", "created_at")
-
-
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(
-        write_only=True, required=True, validators=[validate_password]
-    )
-    password_confirm = serializers.CharField(write_only=True, required=True)
-
-    class Meta:
-        model = User
-        fields = ("username", "email", "password", "password_confirm",
-                  "first_name", "last_name")
-
-    def validate(self, attrs):
-        if attrs["password"] != attrs["password_confirm"]:
-            raise serializers.ValidationError(
-                {"password_confirm": "Las contraseñas no coinciden."}
-            )
-        return attrs
-
-    def validate_email(self, value: str) -> str:
-        if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Este correo ya está registrado.")
-        return value
-
-    def create(self, validated_data):
-        validated_data.pop("password_confirm")
-        password = validated_data.pop("password")
-        user = User(**validated_data)
-        user.set_password(password)
-        user.save()
-        return user
-```
-
-### 10.2 Vistas de `accounts`
-
-📄 **`backend/apps/accounts/views.py`**
-
-```python
-"""Vistas: registro y datos del usuario autenticado."""
-from rest_framework import generics, permissions
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from .serializers import RegisterSerializer, UserSerializer
-
-
-class RegisterView(generics.CreateAPIView):
-    """POST /api/v1/auth/register/ — crea un usuario nuevo."""
-    serializer_class = RegisterSerializer
-    permission_classes = (permissions.AllowAny,)
-
-
-class MeView(APIView):
-    """GET /api/v1/auth/me/ — datos del usuario autenticado."""
-    permission_classes = (permissions.IsAuthenticated,)
-
-    def get(self, request):
-        serializer = UserSerializer(request.user)
-        return Response(serializer.data)
-```
-
-📄 **`backend/apps/accounts/urls.py`**
-
-```python
-"""URLs de la app accounts."""
-from django.urls import path
-
-from .views import MeView, RegisterView
-
-app_name = "accounts"
-
-urlpatterns = [
-    path("register/", RegisterView.as_view(), name="register"),
-    path("me/", MeView.as_view(), name="me"),
-]
-```
-
-### 10.3 Serializers y ViewSet de `core`
-
-📄 **`backend/apps/core/serializers.py`**
-
-```python
-"""Serializers de Note."""
-from rest_framework import serializers
-
+from django import forms
 from .models import Note
 
-
-class NoteSerializer(serializers.ModelSerializer):
-    owner = serializers.ReadOnlyField(source="owner.username")
-
+class NoteForm(forms.ModelForm):
     class Meta:
         model = Note
-        fields = ("id", "title", "body", "owner", "created_at", "updated_at")
-        read_only_fields = ("id", "owner", "created_at", "updated_at")
+        fields = ("title", "body")
+        widgets = {
+            "title": forms.TextInput(attrs={"class": "form-control", "placeholder": "Título"}),
+            "body": forms.Textarea(attrs={"class": "form-control", "placeholder": "Contenido", "rows": 3}),
+        }
 ```
 
-📄 **`backend/apps/core/views.py`**
+### 4.4 Vistas
+
+📄 **`core/views.py`**
 
 ```python
-"""ViewSet de Note: CRUD restringido al usuario autenticado."""
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
-
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+from django.views.generic import CreateView, DeleteView, ListView
+from .forms import NoteForm
 from .models import Note
-from .serializers import NoteSerializer
 
 
-class NoteViewSet(viewsets.ModelViewSet):
-    serializer_class = NoteSerializer
-    permission_classes = (IsAuthenticated,)
+class DashboardView(LoginRequiredMixin, ListView):
+    model = Note
+    template_name = "core/dashboard.html"
+    context_object_name = "notes"
 
     def get_queryset(self):
         return Note.objects.filter(owner=self.request.user)
 
-    def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+
+class NoteCreateView(LoginRequiredMixin, CreateView):
+    model = Note
+    form_class = NoteForm
+    template_name = "core/note_form.html"
+    success_url = reverse_lazy("dashboard")
+
+    def form_valid(self, form):
+        form.instance.owner = self.request.user
+        return super().form_valid(form)
+
+
+class NoteDeleteView(LoginRequiredMixin, DeleteView):
+    model = Note
+    success_url = reverse_lazy("dashboard")
+
+    def get_queryset(self):
+        return Note.objects.filter(owner=self.request.user)
 ```
 
-📄 **`backend/apps/core/urls.py`**
+### 4.5 URLs
+
+📄 **`core/urls.py`**
 
 ```python
-"""URLs de la app core."""
-from rest_framework.routers import DefaultRouter
-
-from .views import NoteViewSet
+from django.urls import path
+from .views import DashboardView, NoteCreateView, NoteDeleteView
 
 app_name = "core"
-
-router = DefaultRouter()
-router.register(r"notes", NoteViewSet, basename="note")
-
-urlpatterns = router.urls
-```
-
-### 10.4 Enrutamiento principal
-
-> **Reemplace todo el contenido** del archivo `config/urls.py` (Django genera uno mínimo en `startproject`; lo sustituimos por el enrutamiento API + JWT).
-
-📄 **`backend/config/urls.py`**
-
-```python
-"""URL routing principal del proyecto."""
-from django.contrib import admin
-from django.urls import include, path
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView,
-)
-
-api_v1_patterns = [
-    path("auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("auth/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
-    path("auth/", include("apps.accounts.urls")),
-    path("", include("apps.core.urls")),
-]
-
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("api/v1/", include((api_v1_patterns, "api"), namespace="v1")),
+    path("", DashboardView.as_view(), name="dashboard"),
+    path("nueva/", NoteCreateView.as_view(), name="note_create"),
+    path("eliminar/<int:pk>/", NoteDeleteView.as_view(), name="note_delete"),
 ]
 ```
 
-### 10.5 Probar la API con curl
+### 4.6 Templates de core
 
-> **Importante para Windows/PowerShell:** el alias `curl` de PowerShell apunta a `Invoke-WebRequest`, no al binario `curl.exe`. Si escribe `curl -X POST ...` obtendrá errores. Use siempre `curl.exe` (incluido en `C:\Windows\System32\` desde Windows 10 1803).
->
-> Antes de empezar confirme que el **servidor Django está corriendo** en otra terminal: `python manage.py runserver`. Los comandos de esta sección envían peticiones HTTP al servidor, no a la base de datos directamente.
+📄 **`core/templates/core/dashboard.html`**
 
-**Paso 1 — Registrar un usuario:**
-
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/api/v1/auth/register/ `
-     -H "Content-Type: application/json" `
-     -d '{"username":"ada","email":"ada@example.com","password":"Strong-Pass-123","password_confirm":"Strong-Pass-123"}'
+```html
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>Mis notas</h2>
+  <a href="{% url 'core:note_create' %}" class="btn btn-success">+ Nueva nota</a>
+</div>
+{% if notes %}
+  <div class="row">
+    {% for note in notes %}
+      <div class="col-md-4 mb-3">
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">{{ note.title }}</h5>
+            <p class="card-text">{{ note.body|linebreaksbr }}</p>
+            <p class="text-muted small">{{ note.created_at|date:"d/m/Y H:i" }}</p>
+            <form method="post" action="{% url 'core:note_delete' note.pk %}" style="display:inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-danger">Eliminar</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-info">No tienes notas aún. ¡Crea tu primera nota!</div>
+{% endif %}
+{% endblock %}
 ```
 
-**Paso 2 — Obtener tokens (login) y guardarlos en variables de PowerShell** (así se evita copiar/pegar el token a mano):
+📄 **`core/templates/core/note_form.html`**
 
-```powershell
-$login = curl.exe -s -X POST http://127.0.0.1:8000/api/v1/auth/token/ `
-     -H "Content-Type: application/json" `
-     -d '{"username":"ada","password":"Strong-Pass-123"}' | ConvertFrom-Json
-
-$access = $login.access
-$refresh = $login.refresh
-Write-Host "access token (primeros 20 chars): $($access.Substring(0,20))..."
+```html
+{% extends "base.html" %}
+{% block title %}Nueva nota{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <h2 class="mb-4">Nueva nota</h2>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="btn btn-primary">Guardar</button>
+      <a href="{% url 'core:dashboard' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
 ```
 
-**Paso 3 — Acceder a `/me/` con el token:**
-
-```powershell
-curl.exe http://127.0.0.1:8000/api/v1/auth/me/ -H "Authorization: Bearer $access"
-```
-
-**Paso 4 — Crear una nota:**
-
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/api/v1/notes/ `
-     -H "Authorization: Bearer $access" `
-     -H "Content-Type: application/json" `
-     -d '{"title":"Hola","body":"Mi primera nota"}'
-```
-
-**Paso 5 — Listar notas:**
-
-```powershell
-curl.exe http://127.0.0.1:8000/api/v1/notes/ -H "Authorization: Bearer $access"
-```
-
-### ✅ Checkpoint Fase 5
-
-- [x] `register`, `token`, `me` y `notes` responden según la tabla de endpoints.
-- [x] `GET /notes/` sin token retorna **401**.
-- [x] `POST /notes/` con token crea una nota y el `owner` es el usuario autenticado.
-- [x] CORS configurado: `CORS_ALLOWED_ORIGINS` en `.env` incluye `http://localhost:5173` (ya está en el `.env.example` de la Parte 1; reinicie el servidor si lo modifica).
-
-> **Concepto POO:** CORS es una **política de seguridad** del navegador. El servidor debe declarar explícitamente qué orígenes externos pueden consumir sus recursos (Principio de Mínimo Privilegio). El middleware `corsheaders` ya quedó instalado y configurado en `base.py` durante la Parte 1.
+✅ **Checkpoint:** dashboard muestra notas, crear y eliminar funcionan.
 
 ---
 
-## Cierre de la Parte 2
+## 5. Fase 8 — Template base (Bootstrap 5)
 
-Ha completado la implementación del backend:
+📄 **`templates/base.html`**
 
-- [x] Apps `accounts` y `core` creadas, con modelos registrados en el admin.
-- [x] API REST con autenticación JWT funcionando en `/api/v1/`.
-- [x] CORS configurado para permitir el origen del frontend React.
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Notas App{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <div class="container">
+      <a class="navbar-brand" href="{% url 'core:dashboard' %}">Notas App</a>
+      <div class="navbar-nav ms-auto">
+        {% if user.is_authenticated %}
+          <span class="nav-link text-light">{{ user.username }}</span>
+          <form method="post" action="{% url 'accounts:logout' %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn nav-link text-danger">Salir</button>
+          </form>
+        {% else %}
+          <a class="nav-link" href="{% url 'accounts:login' %}">Login</a>
+          <a class="nav-link" href="{% url 'accounts:register' %}">Registro</a>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+  <div class="container">{% block content %}{% endblock %}</div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+```
 
-**Siguiente paso:** ➡️ [Parte 3 — Frontend React + UML + Verificación](./guia-laboratorio-03.md)
+### 5.1 Enrutamiento principal
 
-En la Parte 3 creará el cliente con Vite + React + TypeScript, implementará la autenticación contra el API, construirá un dashboard que consuma las notas, y generará los diagramas UML de la arquitectura.
+📄 **`config/urls.py`**
+
+```python
+from django.contrib import admin
+from django.urls import include, path
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("auth/", include("accounts.urls")),
+    path("dashboard/", include("core.urls")),
+    path("", include("core.urls")),  # raíz → dashboard
+]
+```
+
+---
+
+## 6. Probar el sistema completo
+
+```bash
+python manage.py runserver
+```
+
+| Prueba | URL |
+|---|---|
+| Admin | `http://127.0.0.1:8000/admin/` |
+| Registro | `http://127.0.0.1:8000/auth/register/` |
+| Login | `http://127.0.0.1:8000/auth/login/` |
+| Dashboard | `http://127.0.0.1:8000/dashboard/` |
+
+**Flujo:** registrar usuario → login → crear nota → eliminar nota → logout.
+
+---
+
+## Cierre
+
+- [x] Apps `accounts` y `core` creadas con `startapp`.
+- [x] Modelo User personalizado (AbstractBaseUser + CustomUserManager).
+- [x] Autenticación completa (registro, login, logout).
+- [x] CRUD de notas con Bootstrap 5.
+- [x] Template base reutilizable.
+
+**➡️ [Parte 3 — UML + Verificación Final](./guia-laboratorio-03.md)**

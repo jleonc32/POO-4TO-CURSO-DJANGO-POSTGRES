@@ -22,7 +22,9 @@ Laboratorio de **Programación Orientada a Objetos (4to curso)** — aplicación
 │   ├── guia-laboratorio-01.md
 │   ├── guia-laboratorio-02.md
 │   ├── guia-laboratorio-03.md
-│   └── uml/         # diagramas PlantUML (Fase 10)
+│   ├── caso-estudio-facturacion-analisis.md
+│   ├── caso-estudio-facturacion-implementacion.md
+│   └── uml/         # diagramas PlantUML
 └── scripts/         # automatización opcional
 ```
 
@@ -37,6 +39,17 @@ La práctica se divide en **3 guías** que se siguen **en orden**. Cada guía te
 | [03](./docs/guia-laboratorio-03.md) | **Frontend React + UML + Verificación** | 7 → 10 + checklist | Sistema cliente/servidor completo + diagramas |
 
 > **Recomendación:** complete la 01, verifique el checkpoint, y solo entonces pase a la 02. Cada guía referencia explícitamente la anterior y la siguiente.
+
+## Caso de Estudio — Sistema de Facturación
+
+Aplica el proceso completo de **Análisis OO → SOLID → UML → DER → Django → API REST → Transacciones ACID** sobre un caso Maestro-Detalle real.
+
+| Parte | Contenido | Duración |
+|---|---|---|
+| [📘 Análisis y Diseño OO](./docs/caso-estudio-facturacion-analisis.md) | Análisis de dominio, 5 clases, 8 reglas de negocio, SOLID, UML, ER | 1 – 1.5 h |
+| [📘 Implementación Django](./docs/caso-estudio-facturacion-implementacion.md) | Modelos, serializers, servicios transaccionales, ViewSets, API REST, pruebas | 1.5 – 2 h |
+
+> **Recomendación:** complete primero la Parte 1 (conceptos), verifique el checkpoint, y luego pase a la Parte 2 (código).
 
 ## Documentación adicional
 
